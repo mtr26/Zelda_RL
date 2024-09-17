@@ -1,0 +1,1 @@
+step: 8185  shield: True  sword: False  explo: 4.029999999999937  heal: 0  sum: 5.02999999999993455
