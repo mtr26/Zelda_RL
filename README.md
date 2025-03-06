@@ -20,13 +20,15 @@ Zelda_RL is a reinforcement learning project that trains an AI agent to play **T
 ```bash
 git clone https://github.com/mtr26/Zelda_RL.git
 cd Zelda_RL
-'''
+```
 
 ### 2️⃣ Create a virtual environment (optional but recommended):
 ```bash
 python3 -m venv env
 source env/bin/activate  # On Windows use `env\Scripts\activate`
+```
 
 ### 3️⃣ Install dependencies:
 ```bash
 pip install -r requirements.txt
+```
