@@ -26,16 +26,21 @@ def make_env(rank, seed=0, max_time = 2048 * 8):
     return _init
 
 
-
+import argparse
 if __name__ == '__main__':
-    
-    #ep_length = 2048*2
-    timesteps = int(1e6)
-    #learn_steps = 5
-    num_cpu = 10
-    log_dir = "tmp/"
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument('--timesteps', type=int, default=int(1e6))
+    argparser.add_argument('--num_cpu', type=int, default=10)
+    argparser.add_argument('--log_dir', type=str, default="tmp/")
+    argparser.add_argument('--pre_trained', type=[bool, str], default=False)
+
+    args = argparser.parse_args()
+    timesteps = args.timesteps
+    num_cpu = args.num_cpu
+    log_dir = args.log_dir
     os.makedirs(log_dir, exist_ok=True)
-    pre_trained = False
+    pre_trained = args.pre_trained
+
     end_model = True
     ep_length = 1024 * 8
 
@@ -48,7 +53,7 @@ if __name__ == '__main__':
     callback = SaveOnBestTrainingRewardCallback(check_freq=4096, log_dir=log_dir)
 
     
-    if pre_trained:
+    if pre_trained is not False:
         model = PPO.load('end_model' if end_model else 'best_model', env=vec_env)
         model.set_parameters('end_model' if end_model else 'best_model')
         model.rollout_buffer.buffer_size = ep_length
@@ -62,11 +67,3 @@ if __name__ == '__main__':
     plot_results([log_dir], timesteps, results_plotter.X_TIMESTEPS, "ZeldaTest")
     plt.show()
     
-    """
-    for _ in range(learn_steps):
-        model.learn(total_timesteps=ep_length*num_cpu, progress_bar=False, callback=callback)
-        print(_)
-
-    
-    
-    """

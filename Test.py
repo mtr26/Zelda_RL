@@ -25,15 +25,25 @@ def make_env(rank, seed=0):
     return _init
 
 
+import argparse
 
 if __name__ == '__main__':
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument('--timesteps', type=int, default=int(1e6))
+    argparser.add_argument('--model_path')
+
+    args = argparser.parse_args()
+    timesteps = args.timesteps
+    model_path = args.model_path
+
+
     vec_env = SubprocVecEnv([make_env(i) for i in range(1)])
     vec_env = VecFrameStack(vec_env, n_stack=4)
 
-    model = PPO.load('end_model', env=vec_env)
+    model = PPO.load(model_path, env=vec_env)
     obs = vec_env.reset()
 
-    for _ in range(int(1e4)):
+    for _ in range(timesteps):
         action, _state = model.predict(obs)
         obs, reward, done, info = vec_env.step(action)
 

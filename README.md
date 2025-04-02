@@ -10,7 +10,10 @@ Zelda_RL is a reinforcement learning project that trains an AI agent to play **T
 - 🧠 PPO-based reinforcement learning agent
 - 💾 Model saving and loading for continued training
 - 📊 Training visualization and logging
-- 🕹️ Emulator integration via `gym-retro`
+- 🕹️ Emulator integration via `pyboy`
+- 📹 Video recording of gameplay sessions
+- 🎯 Reward system for exploration and combat
+- 💪 Multi-process training support
 
 ---
 
@@ -32,3 +35,19 @@ source env/bin/activate  # On Windows use `env\Scripts\activate`
 ```bash
 pip install -r requirements.txt
 ```
+
+
+## 🎮 Usage
+
+### Training
+
+```bash
+python Train.py --timesteps 1000000 --num_cpu 10 --log_dir "tmp/"
+```
+
+### Testing 
+
+```bash
+python Test.py --timesteps 10000 --model_path "best_model"
+```
+
