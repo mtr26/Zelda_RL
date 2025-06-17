@@ -42,7 +42,7 @@ if __name__ == '__main__':
     pre_trained = args.pre_trained
 
     end_model = True
-    ep_length = 1024 * 8
+    ep_length = 1024
 
     vec_env = SubprocVecEnv([make_env(i, ep_length) for i in range(num_cpu)])
 
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     vec_env = VecFrameStack(vec_env, n_stack=4)
 
     vec_env = VecMonitor(vec_env, log_dir)
-    callback = SaveOnBestTrainingRewardCallback(check_freq=256, log_dir=log_dir)
+    callback = SaveOnBestTrainingRewardCallback(check_freq=10, log_dir=log_dir)
 
     
     if pre_trained is not False:
