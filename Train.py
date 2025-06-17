@@ -42,7 +42,7 @@ if __name__ == '__main__':
     pre_trained = args.pre_trained
 
     end_model = True
-    ep_length = 1024
+    ep_length = 2048 * 10
 
     vec_env = SubprocVecEnv([make_env(i, ep_length) for i in range(num_cpu)])
 
@@ -59,7 +59,7 @@ if __name__ == '__main__':
         model.rollout_buffer.buffer_size = ep_length
         model.rollout_buffer.reset()
     else:
-        model = PPO('CnnPolicy', env=vec_env,  n_steps=ep_length, batch_size=512, n_epochs=1, gamma=0.999)
+        model = PPO('CnnPolicy', env=vec_env,  n_steps=ep_length // 8, batch_size=512, n_epochs=3, gamma=0.999, verbose=1)
         
     model.learn(total_timesteps=timesteps, progress_bar=True, callback=callback)
     model.save('end_model')
