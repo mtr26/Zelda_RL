@@ -50,7 +50,7 @@ if __name__ == '__main__':
     vec_env = VecFrameStack(vec_env, n_stack=4)
 
     vec_env = VecMonitor(vec_env, log_dir)
-    callback = SaveOnBestTrainingRewardCallback(check_freq=4096, log_dir=log_dir)
+    callback = SaveOnBestTrainingRewardCallback(check_freq=256, log_dir=log_dir)
 
     
     if pre_trained is not False:
