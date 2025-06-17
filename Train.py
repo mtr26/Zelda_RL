@@ -29,13 +29,13 @@ def make_env(rank, seed=0, max_time = 2048 * 8):
 import argparse
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('--timesteps', type=int, default=int(1e6))
+    argparser.add_argument('--num_episodes', type=int, default=int(1e6))
     argparser.add_argument('--num_cpu', type=int, default=10)
     argparser.add_argument('--log_dir', type=str, default="tmp/")
     argparser.add_argument('--pre_trained', type=bool, default=False)
 
     args = argparser.parse_args()
-    timesteps = args.timesteps
+    num_episodes = args.num_episodes
     num_cpu = args.num_cpu
     log_dir = args.log_dir
     os.makedirs(log_dir, exist_ok=True)
@@ -61,7 +61,7 @@ if __name__ == '__main__':
     else:
         model = PPO('CnnPolicy', env=vec_env,  n_steps=ep_length // 8, batch_size=512, n_epochs=3, gamma=0.999, verbose=1)
         
-    model.learn(total_timesteps=timesteps, progress_bar=True, callback=callback)
+    model.learn(total_timesteps=(ep_length)*num_cpu*num_episodes, progress_bar=True, callback=callback)
     model.save('end_model')
 
     plot_results([log_dir], timesteps, results_plotter.X_TIMESTEPS, "ZeldaTest")
