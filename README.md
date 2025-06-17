@@ -42,7 +42,7 @@ pip install -r Rom/requirements.txt
 ### Training
 
 ```bash
-python Train.py --timesteps 1000000 --num_cpu 10 --log_dir "tmp/"
+python Train.py --num_episodes 5000 --num_cpu 10 --log_dir "tmp/"
 ```
 
 ### Testing 
