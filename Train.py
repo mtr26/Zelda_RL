@@ -32,7 +32,7 @@ if __name__ == '__main__':
     argparser.add_argument('--timesteps', type=int, default=int(1e6))
     argparser.add_argument('--num_cpu', type=int, default=10)
     argparser.add_argument('--log_dir', type=str, default="tmp/")
-    argparser.add_argument('--pre_trained', type=[bool, str], default=False)
+    argparser.add_argument('--pre_trained', type=bool, default=False)
 
     args = argparser.parse_args()
     timesteps = args.timesteps
