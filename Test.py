@@ -37,7 +37,7 @@ if __name__ == '__main__':
     model_path = args.model_path
 
 
-    vec_env = SubprocVecEnv([make_env(i) for i in range(1)])
+    vec_env = DummyVecEnv([make_env(0)])
     vec_env = VecFrameStack(vec_env, n_stack=4)
 
     model = PPO.load(model_path, env=vec_env)
@@ -46,4 +46,5 @@ if __name__ == '__main__':
     for _ in range(timesteps):
         action, _state = model.predict(obs)
         obs, reward, done, info = vec_env.step(action)
+
 
