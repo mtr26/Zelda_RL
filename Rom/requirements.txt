@@ -1,4 +1,6 @@
 # Dependencies for Zelda_RL. Torch is installed separately to avoid downgrades.
+# OpenCV is not required by the project; if an environment pulls it in, prefer
+# opencv-python-headless or uninstall opencv-python to avoid Python 3.13 cv2 issues.
 asttokens==2.4.1
 cloudpickle==3.0.0
 colorama==0.4.6

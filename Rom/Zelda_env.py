@@ -105,7 +105,8 @@ class ZeldaEnv(gym.Env):
         self.statut = False
         self.pyboy = pyboy.PyBoy(
             PATH,
-            window='SDL2' if show else'null'
+            window='SDL2' if show else 'null',
+            sound_emulated=False,
                 )
         self.show = show
         self.screen = self.pyboy.screen
