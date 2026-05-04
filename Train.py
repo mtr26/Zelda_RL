@@ -96,7 +96,7 @@ if __name__ == '__main__':
             tensorboard_log=os.path.join(log_dir, "tb"),
         )
 
-    total_timesteps = ep_length * num_cpu * num_episodes
+    total_timesteps = ep_length * num_episodes
     model.learn(total_timesteps=total_timesteps, progress_bar=True, callback=callback)
     model.save('end_model')
 
