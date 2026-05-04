@@ -10,3 +10,6 @@ output.txt
 
 best_model.zip
 end_model.zip
+run_5m
+artifacts.zip
+.DS_Store

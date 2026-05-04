@@ -44,6 +44,7 @@ if __name__ == '__main__':
     argparser.add_argument('--checkpoint_freq', type=int, default=50000)
     argparser.add_argument('--ent_coef', type=float, default=0.01)
     argparser.add_argument('--pre_trained', action='store_true')
+    argparser.add_argument('--checkpoint', type=str, default=None, help='Path to checkpoint model to fine-tune from')
     argparser.add_argument('--show_plot', action='store_true')
 
     args = argparser.parse_args()
@@ -51,9 +52,8 @@ if __name__ == '__main__':
     num_cpu = args.num_cpu
     log_dir = args.log_dir
     os.makedirs(log_dir, exist_ok=True)
-    pre_trained = args.pre_trained
-
-    end_model = True
+    pre_trained = args.pre_trained or args.checkpoint is not None
+    checkpoint_path = args.checkpoint
     ep_length = args.max_steps
 
     vec_env = SubprocVecEnv([make_env(i, seed=0, max_time=ep_length) for i in range(num_cpu)])
@@ -79,8 +79,13 @@ if __name__ == '__main__':
 
     
     if pre_trained:
-        model = PPO.load('end_model' if end_model else 'best_model', env=vec_env)
-        model.set_parameters('end_model' if end_model else 'best_model')
+        if checkpoint_path:
+            model_to_load = checkpoint_path
+        else:
+            model_to_load = 'end_model'
+        print(f"Loading checkpoint from: {model_to_load}")
+        model = PPO.load(model_to_load, env=vec_env)
+        model.set_parameters(model_to_load)
         model.rollout_buffer.buffer_size = ep_length
         model.rollout_buffer.reset()
     else:
