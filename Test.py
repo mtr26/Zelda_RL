@@ -1,5 +1,5 @@
 from Rom.Zelda_env import *
-from stable_baselines3.common.vec_env import VecFrameStack, VecMonitor, SubprocVecEnv, DummyVecEnv
+from stable_baselines3.common.vec_env import VecFrameStack, VecMonitor, SubprocVecEnv, DummyVecEnv, VecTransposeImage
 from stable_baselines3 import PPO
 from stable_baselines3.common.utils import set_random_seed
 from Rom.SaveOnBestCallback import SaveOnBestTrainingRewardCallback
@@ -39,6 +39,7 @@ if __name__ == '__main__':
 
     vec_env = DummyVecEnv([make_env(0)])
     vec_env = VecFrameStack(vec_env, n_stack=4)
+    vec_env = VecTransposeImage(vec_env)
 
     model = PPO.load(model_path, env=vec_env)
     obs = vec_env.reset()

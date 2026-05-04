@@ -1,4 +1,5 @@
 from typing import Any
+import time
 import gymnasium as gym
 from pyboy.utils import WindowEvent
 import pyboy
@@ -24,6 +25,26 @@ class ZeldaEnv(gym.Env):
         self.frame_stacks = 3
         self.step_count = 0
         self.max_step = max_step
+        self.coverage_size = 64
+        self.coverage_by_world = {}
+        self.coverage_dirty = False
+        self.event_r = 0.0
+        self.last_reward = 0.0
+        self.last_reward_components = {
+            "explore": 0.0,
+            "fight": 0.0,
+            "event": 0.0,
+            "coverage": 0.0,
+            "stuck": 0.0,
+        }
+        self.coverage_r = 0.0
+        self.stuck_r = 0.0
+        self.last_coverage_new = False
+        self.stuck_threshold = 64
+        self.stuck_steps = 0
+        self.last_position = None
+        self.last_info = None
+        self.episode_start_time = time.time()
 
 
         self.got_shield = False
@@ -49,6 +70,7 @@ class ZeldaEnv(gym.Env):
             WindowEvent.PRESS_ARROW_UP,
             WindowEvent.PRESS_BUTTON_A,
             WindowEvent.PRESS_BUTTON_B,
+            None,
         ]
 
         self.release_button = [
@@ -87,7 +109,7 @@ class ZeldaEnv(gym.Env):
                 )
         self.show = show
         self.screen = self.pyboy.screen
-        self.old_info = self._get_info()
+        self.old_info = dict(self._get_info())
         self.pyboy.set_emulation_speed(speed)
         self.reset_number = 0
         self.reset()
@@ -126,8 +148,10 @@ class ZeldaEnv(gym.Env):
         
         self.step_count = 0
         self.statut = False
-        self.old_info = self._get_info()
+        self.old_info = dict(self._get_info())
         self.clear()
+        self.episode_start_time = time.time()
+        self.last_info = None
         self.reset_number += 1
         return self.render(), self._get_info()
     
@@ -152,14 +176,16 @@ class ZeldaEnv(gym.Env):
         self._action_on_emulator(action)
         obs = self.render()
         info = self._get_info()
+        self.last_info = info
+        self._update_coverage(info)
+        self._update_stuck(info)
         rewards = self._get_rewards(info)
-        if self.step_count >= self.max_step:
-            self.statut = True
-        else:
+        terminated = info.get("health", 1) <= 0
+        truncated = self.step_count >= self.max_step
+        if not truncated:
             self.step_count += 1
-
-        
-        return obs, rewards, self.statut, self.statut, info
+        self.statut = terminated or truncated
+        return obs, rewards, terminated, truncated, info
     
     def close(self):
         self.pyboy.stop()
@@ -170,19 +196,37 @@ class ZeldaEnv(gym.Env):
     def check_change(self):
         return {i:self.old_info[i]!=self._get_info()[i] for i in self.old_info.keys()}
     
-    def update(self):
-        self.old_info = self._get_info()
+    def update(self, info = None):
+        base_info = info if info is not None else self._get_info()
+        self.old_info = dict(base_info)
 
     def clear(self):
         self.got_sword = False
         self.got_shield = False
         self.explo = 0
         self.heal_r = 0
+        self.event_r = 0
         self.reward_sum = 0
+        self.last_reward = 0.0
+        self.last_reward_components = {
+            "explore": 0.0,
+            "fight": 0.0,
+            "event": 0.0,
+            "coverage": 0.0,
+            "stuck": 0.0,
+        }
+        self.coverage_r = 0.0
+        self.stuck_r = 0.0
+        self.last_coverage_new = False
+        self.stuck_steps = 0
         self.visited_location = [(self._get_player_x, self._get_player_y)]
         self.visited_worlds = [self._get_current_world]
-        self.locations = self._get_info()['map_statut']
-        self.life = self._get_info()['health']
+        self.locations = self._get_maps_statuts
+        self.life = self._get_health_level
+        self.coverage_by_world = {}
+        self.coverage_dirty = False
+        self.last_position = (self._get_player_x, self._get_player_y)
+        self._update_coverage_from_position(self._get_current_world, self._get_player_x, self._get_player_y)
 
 
     def _reset_memory(self):
@@ -224,6 +268,7 @@ class ZeldaEnv(gym.Env):
         if change['sword_level'] and self.got_sword == False:
             self.got_sword = True
             reward += reward_table['sword']
+        self.event_r += reward
         return reward
 
     def print_reward(self):
@@ -237,22 +282,42 @@ class ZeldaEnv(gym.Env):
     def _get_rewards(self, info):
         '''The reward method'''
         # TODO : implement the reward and create a reward table file
-        changes = self.check_change()
-        if changes['map_statut']: self._skip_frame()
-        reward = (self.event_reward(changes) +
-                  self.exploration_reward(changes, info) +
-                  self.fight_reward(changes, info))
+        changes = {key: self.old_info.get(key) != info.get(key) for key in info.keys()}
+        if changes['map_statut']:
+            self._skip_frame()
+        reward_event = self.event_reward(changes)
+        reward_explore = self.exploration_reward(changes, info)
+        reward_fight = self.fight_reward(changes, info)
+        reward_coverage = reward_table.get("coverage", 0.0) if self.last_coverage_new else 0.0
+        reward_stuck = 0.0
+        if self.stuck_steps >= self.stuck_threshold:
+            reward_stuck = reward_table.get("stuck", 0.0)
+        reward = reward_event + reward_explore + reward_fight + reward_coverage + reward_stuck
+        self.last_reward_components = {
+            "explore": reward_explore,
+            "fight": reward_fight,
+            "event": reward_event,
+            "coverage": reward_coverage,
+            "stuck": reward_stuck,
+        }
+        self.last_reward = reward
+        self.coverage_r += reward_coverage
+        self.stuck_r += reward_stuck
         self.reward_sum += reward
         self.print_reward()
         self._reset_memory()
-        self.update()
+        self.update(info)
         return reward
     
     def _action_on_emulator(self, action):
-        if action == 26:
-            self.pyboy.tick()
+        event = self.valid_actions[action]
+        if event is None:
+            for _ in range(9):
+                if self.save:
+                    self.add_video_frame()
+                self.pyboy.tick()
             return
-        self.pyboy.send_input(self.valid_actions[action])
+        self.pyboy.send_input(event)
         # disable rendering when we don't need it
         for i in range(9):
             if i == 8:
@@ -262,12 +327,100 @@ class ZeldaEnv(gym.Env):
                 if action > 3 and action < 6:
                     # release button 
                     self.pyboy.send_input(self.release_button[action - 4])
-                if self.valid_actions[action] == WindowEvent.PRESS_BUTTON_START:
+                if event == WindowEvent.PRESS_BUTTON_START:
                     self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START)
             if self.save:
                 self.add_video_frame()
             self.pyboy.tick()
         #self.pyboy.send_input(self.release_actions[action])
+
+    def _update_coverage_from_position(self, world, x, y):
+        world_id = int(world)
+        grid = self.coverage_by_world.get(world_id)
+        if grid is None:
+            grid = np.zeros((self.coverage_size, self.coverage_size), dtype=np.uint16)
+            self.coverage_by_world[world_id] = grid
+        scale = 256
+        grid_x = min(self.coverage_size - 1, max(0, x * self.coverage_size // scale))
+        grid_y = min(self.coverage_size - 1, max(0, y * self.coverage_size // scale))
+        was_new = grid[grid_y, grid_x] == 0
+        if grid[grid_y, grid_x] < np.iinfo(grid.dtype).max:
+            grid[grid_y, grid_x] += 1
+        self.last_coverage_new = was_new
+        self.coverage_dirty = True
+
+    def _update_coverage(self, info):
+        self._update_coverage_from_position(info["current_world"], info["player_x"], info["player_y"])
+
+    def _update_stuck(self, info):
+        pos = info["player_location"]
+        if pos == self.last_position:
+            self.stuck_steps += 1
+        else:
+            self.stuck_steps = 0
+            self.last_position = pos
+
+    def get_coverage_map(self, world = None):
+        world_id = int(self._get_current_world if world is None else world)
+        grid = self.coverage_by_world.get(world_id)
+        if grid is None:
+            return np.zeros((self.coverage_size, self.coverage_size), dtype=np.uint8)
+        return np.clip(grid, 0, 255).astype(np.uint8)
+
+    def get_coverage_stats(self, world = None):
+        coverage = self.get_coverage_map(world)
+        visited = int(np.count_nonzero(coverage))
+        total = int(coverage.size)
+        ratio = visited / total if total else 0.0
+        return {"coverage_visited": visited, "coverage_total": total, "coverage_ratio": ratio}
+
+    def get_ascii_map(self, world = None, size = 32):
+        coverage = self.get_coverage_map(world)
+        if size > 0 and size != coverage.shape[0] and coverage.shape[0] % size == 0:
+            factor = coverage.shape[0] // size
+            coverage = coverage.reshape(size, factor, size, factor).sum(axis=(1, 3))
+        coverage = coverage[:size, :size]
+        lines = []
+        for row in coverage:
+            lines.append("".join("#" if val > 0 else "." for val in row))
+        return "\n".join(lines)
+
+    def get_debug_stats(self):
+        info = self.last_info if self.last_info is not None else self._get_info()
+        map_statut = info["map_statut"]
+        discovered = int(np.count_nonzero(np.array(map_statut)))
+        total = int(len(map_statut))
+        ratio = discovered / total if total else 0.0
+        coverage_stats = self.get_coverage_stats(info["current_world"])
+        return {
+            "step": int(self.step_count),
+            "timesteps": int(self.step_count),
+            "world": int(info["current_world"]),
+            "player_x": int(info["player_x"]),
+            "player_y": int(info["player_y"]),
+            "health": int(info["health"]),
+            "killed_monster": int(info["killed_monster"]),
+            "reward_sum": float(self.reward_sum),
+            "reward_explore": float(self.explo),
+            "reward_fight": float(self.heal_r),
+            "reward_event": float(self.event_r),
+            "reward_coverage": float(self.coverage_r),
+            "reward_stuck": float(self.stuck_r),
+            "last_reward": float(self.last_reward),
+            "last_reward_components": dict(self.last_reward_components),
+            "map_discovered": discovered,
+            "map_total": total,
+            "map_coverage_ratio": float(ratio),
+            "coverage_visited": coverage_stats["coverage_visited"],
+            "coverage_total": coverage_stats["coverage_total"],
+            "coverage_ratio": float(coverage_stats["coverage_ratio"]),
+            "visited_locations": int(len(self.visited_location)),
+            "visited_worlds": int(len(self.visited_worlds)),
+            "stuck_steps": int(self.stuck_steps),
+            "has_sword": bool(self.got_sword),
+            "has_shield": bool(self.got_shield),
+            "episode_seconds": float(time.time() - self.episode_start_time),
+        }
     
     
 

@@ -1,0 +1,12 @@
+.venv/
+.deepeval/
+.vscode/
+__pycache__/
+*.py[cod]
+
+tmp/
+vid/
+output.txt
+
+best_model.zip
+end_model.zip
