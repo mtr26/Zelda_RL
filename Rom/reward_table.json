@@ -3,7 +3,7 @@
     "shield" : 10,
     "explore" : 0.02,
     "coverage" : 0.01,
-    "sword" : 1,
+    "sword" : 10,
     "explore_house" : 0.05,
     "loss" : -1,
     "hit" : -2,
