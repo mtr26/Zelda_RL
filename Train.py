@@ -85,9 +85,6 @@ if __name__ == '__main__':
             model_to_load = 'end_model'
         print(f"Loading checkpoint from: {model_to_load}")
         model = PPO.load(model_to_load, env=vec_env)
-        model.set_parameters(model_to_load)
-        model.rollout_buffer.buffer_size = ep_length
-        model.rollout_buffer.reset()
     else:
         model = PPO(
             'CnnPolicy',
