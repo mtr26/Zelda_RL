@@ -15,3 +15,5 @@ artifacts.zip
 .DS_Store
 run_10m_fixed
 run.zip
+run_20m_long
+audit_output

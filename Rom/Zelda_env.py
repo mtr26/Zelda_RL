@@ -19,9 +19,14 @@ PATH = 'Rom/bin/zelda.gbc'
 # TODO : Implement a negatif reward system when the model return in an already known area
 
 class ZeldaEnv(gym.Env):
-    def __init__(self, pos, show = False, save = True, speed = 25, max_step = 2048*8):
+    def __init__(self, pos, show = False, save = True, speed = 25, max_step = 2048*8,
+                 curriculum_states = None, curriculum_weights = None):
         super().__init__()
         self.init_state = 'init.state'
+        # Curriculum: list of .state paths to sample from at reset.
+        # curriculum_weights controls sampling probability (must sum to 1).
+        self.curriculum_states = curriculum_states  # e.g. ['init.state', 'saved.state']
+        self.curriculum_weights = curriculum_weights  # e.g. [0.7, 0.3]
         self.frame_stacks = 3
         self.step_count = 0
         self.max_step = max_step
@@ -35,9 +40,11 @@ class ZeldaEnv(gym.Env):
             "fight": 0.0,
             "event": 0.0,
             "coverage": 0.0,
+            "kill": 0.0,
             "stuck": 0.0,
         }
         self.coverage_r = 0.0
+        self.kill_r = 0.0
         self.stuck_r = 0.0
         self.last_coverage_new = False
         self.stuck_threshold = 64
@@ -46,11 +53,11 @@ class ZeldaEnv(gym.Env):
         self.last_info = None
         self.episode_start_time = time.time()
 
-
         self.got_shield = False
         self.got_sword = False
         self.visited_location = []
         self.visited_worlds = []
+        self.kill_count = 0
 
 
         self.metadata = {"render.modes": []}
@@ -130,11 +137,18 @@ class ZeldaEnv(gym.Env):
         self.full_frame_writer = media.VideoWriter(f'vid/full_{pos}.mp4', (144, 160), fps=60)
         self.full_frame_writer.__enter__()
 
+    def _choose_start_state(self):
+        """Return a state file path, sampling from curriculum if configured."""
+        if self.curriculum_states and len(self.curriculum_states) > 0:
+            return np.random.choice(self.curriculum_states, p=self.curriculum_weights)
+        return self.init_state
+
     def reset(self, seed = None, options = None):
         # TODO : implement the reset method
         self.seed = seed
-        # restart game, skipping credits
-        with open(self.init_state, "rb") as f:
+        # Curriculum: sample a starting state
+        state_path = self._choose_start_state()
+        with open(state_path, "rb") as f:
             self.pyboy.load_state(f)
         
 
@@ -214,12 +228,15 @@ class ZeldaEnv(gym.Env):
             "fight": 0.0,
             "event": 0.0,
             "coverage": 0.0,
+            "kill": 0.0,
             "stuck": 0.0,
         }
         self.coverage_r = 0.0
+        self.kill_r = 0.0
         self.stuck_r = 0.0
         self.last_coverage_new = False
         self.stuck_steps = 0
+        self.kill_count = int(self._get_nbr_killed_monster)
         self.visited_location = [(self._get_player_x, self._get_player_y)]
         self.visited_worlds = [self._get_current_world]
         self.locations = self._get_maps_statuts
@@ -272,8 +289,17 @@ class ZeldaEnv(gym.Env):
         self.event_r += reward
         return reward
 
+    def kill_reward(self, info):
+        """Reward each new monster kill since episode start."""
+        current_kills = int(info.get('killed_monster', 0))
+        new_kills = max(0, current_kills - self.kill_count)
+        self.kill_count = max(self.kill_count, current_kills)
+        reward = new_kills * reward_table.get('kill', 0.0)
+        self.kill_r += reward
+        return reward
+
     def print_reward(self):
-        txt = f'step: {self.step_count}  shield: {self.got_shield}  sword: {self.got_sword}  explo: {self.explo}  heal: {self.heal_r}  sum: {self.reward_sum}'
+        txt = f'step: {self.step_count}  shield: {self.got_shield}  sword: {self.got_sword}  kills: {self.kill_count}  explo: {self.explo}  heal: {self.heal_r}  sum: {self.reward_sum}'
         if self.show:
             print(f'\r{txt}', end='', flush=True)
         else:
@@ -282,22 +308,23 @@ class ZeldaEnv(gym.Env):
     
     def _get_rewards(self, info):
         '''The reward method'''
-        # TODO : implement the reward and create a reward table file
         changes = {key: self.old_info.get(key) != info.get(key) for key in info.keys()}
         if changes['map_statut']:
             self._skip_frame()
         reward_event = self.event_reward(changes)
         reward_explore = self.exploration_reward(changes, info)
         reward_fight = self.fight_reward(changes, info)
+        reward_kill = self.kill_reward(info)
         reward_coverage = reward_table.get("coverage", 0.0) if self.last_coverage_new else 0.0
         reward_stuck = 0.0
         if self.stuck_steps >= self.stuck_threshold:
             reward_stuck = reward_table.get("stuck", 0.0)
-        reward = reward_event + reward_explore + reward_fight + reward_coverage + reward_stuck
+        reward = reward_event + reward_explore + reward_fight + reward_kill + reward_coverage + reward_stuck
         self.last_reward_components = {
             "explore": reward_explore,
             "fight": reward_fight,
             "event": reward_event,
+            "kill": reward_kill,
             "coverage": reward_coverage,
             "stuck": reward_stuck,
         }
@@ -306,7 +333,9 @@ class ZeldaEnv(gym.Env):
         self.stuck_r += reward_stuck
         self.reward_sum += reward
         self.print_reward()
-        self._reset_memory()
+        # NOTE: _reset_memory() was intentionally removed — it was zeroing
+        # WORLD_STATUT (0xD800-0xD8FF) every step, wiping the game's room-visited
+        # flags and causing map_discovered to always read 0 in debug stats.
         self.update(info)
         return reward
     
@@ -400,11 +429,12 @@ class ZeldaEnv(gym.Env):
             "player_x": int(info["player_x"]),
             "player_y": int(info["player_y"]),
             "health": int(info["health"]),
-            "killed_monster": int(info["killed_monster"]),
+            "killed_monster": int(self.kill_count),
             "reward_sum": float(self.reward_sum),
             "reward_explore": float(self.explo),
             "reward_fight": float(self.heal_r),
             "reward_event": float(self.event_r),
+            "reward_kill": float(self.kill_r),
             "reward_coverage": float(self.coverage_r),
             "reward_stuck": float(self.stuck_r),
             "last_reward": float(self.last_reward),

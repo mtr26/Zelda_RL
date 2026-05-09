@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 
 
 
-def make_env(rank, seed=0, max_time = 2048 * 8):
+def make_env(rank, seed=0, max_time=2048 * 8, curriculum_states=None, curriculum_weights=None):
     """
     Utility function for multiprocessed env.
     :param env_id: (str) the environment ID
@@ -24,7 +24,11 @@ def make_env(rank, seed=0, max_time = 2048 * 8):
     :param rank: (int) index of the subprocess
     """
     def _init():
-        env = ZeldaEnv(rank, save=False, max_step=max_time)
+        env = ZeldaEnv(
+            rank, save=False, max_step=max_time,
+            curriculum_states=curriculum_states,
+            curriculum_weights=curriculum_weights,
+        )
         env.reset(seed=(seed + rank))
         return env
     set_random_seed(seed)
@@ -42,10 +46,20 @@ if __name__ == '__main__':
     argparser.add_argument('--coverage_freq', type=int, default=5000)
     argparser.add_argument('--text_map_freq', type=int, default=5000)
     argparser.add_argument('--checkpoint_freq', type=int, default=50000)
-    argparser.add_argument('--ent_coef', type=float, default=0.01)
+    argparser.add_argument('--ent_coef', type=float, default=0.02)
     argparser.add_argument('--pre_trained', action='store_true')
     argparser.add_argument('--checkpoint', type=str, default=None, help='Path to checkpoint model to fine-tune from')
     argparser.add_argument('--show_plot', action='store_true')
+    argparser.add_argument(
+        '--curriculum',
+        nargs='+',
+        default=None,
+        metavar='STATE:WEIGHT',
+        help=(
+            'Curriculum starting states with weights, e.g.: '
+            '--curriculum init.state:0.7 saved.state:0.3'
+        ),
+    )
 
     args = argparser.parse_args()
     num_episodes = args.num_episodes
@@ -56,7 +70,23 @@ if __name__ == '__main__':
     checkpoint_path = args.checkpoint
     ep_length = args.max_steps
 
-    vec_env = SubprocVecEnv([make_env(i, seed=0, max_time=ep_length) for i in range(num_cpu)])
+    # Parse curriculum states/weights
+    curriculum_states = None
+    curriculum_weights = None
+    if args.curriculum:
+        pairs = [entry.rsplit(':', 1) for entry in args.curriculum]
+        curriculum_states = [p[0] for p in pairs]
+        curriculum_weights = [float(p[1]) for p in pairs]
+        total_w = sum(curriculum_weights)
+        curriculum_weights = [w / total_w for w in curriculum_weights]  # normalise
+        print(f"Curriculum: {list(zip(curriculum_states, curriculum_weights))}")
+
+    vec_env = SubprocVecEnv([
+        make_env(i, seed=0, max_time=ep_length,
+                 curriculum_states=curriculum_states,
+                 curriculum_weights=curriculum_weights)
+        for i in range(num_cpu)
+    ])
 
     vec_env = VecMonitor(vec_env, log_dir)
     vec_env = VecFrameStack(vec_env, n_stack=4)
