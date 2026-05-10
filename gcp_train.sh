@@ -1,11 +1,10 @@
 #!/bin/bash
 # ============================================================
 # GCP training launch script — Zelda RL "Get the Sword" run
-# Server: 8 vCPU / 32 GB RAM
+# Server: 30 vCPU / 120 GB RAM (e.g. c2-standard-30 Spot VM)
 #
 # Timestep math (Train.py: total_timesteps = max_steps * num_episodes):
-#   max_steps=16384  num_episodes=1500  -> 24.6M steps  (~21h @ 7 envs)
-#   (previous run: max_steps=8192 * num_episodes=3000 = 24.6M in 15h @ 10 envs)
+#   max_steps=16384  num_episodes=3000  -> ~49.1M steps  (~4-6h @ 28 envs)
 # ============================================================
 
 set -e
@@ -23,14 +22,14 @@ else
 fi
 
 echo "[INFO] Starting run: ${RUN_NAME}"
-echo "[INFO] Target: 16384 * 1500 = ~24.6M timesteps"
+echo "[INFO] Target: 16384 * 3000 = ~49.1M timesteps"
 echo "[INFO] Curriculum: 70% init.state / 30% saved.state"
 
 .venv/bin/python Train.py \
-    --num_cpu 7 \
+    --num_cpu 28 \
     --log_dir "${RUN_NAME}" \
     --max_steps 16384 \
-    --num_episodes 1500 \
+    --num_episodes 3000 \
     --ent_coef 0.02 \
     --debug_freq 2000 \
     --coverage_freq 10000 \

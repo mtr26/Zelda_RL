@@ -39,7 +39,7 @@ import argparse
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--num_episodes', type=int, default=int(1e6))
-    argparser.add_argument('--num_cpu', type=int, default=10)
+    argparser.add_argument('--num_cpu', type=int, default=28)
     argparser.add_argument('--log_dir', type=str, default="tmp/")
     argparser.add_argument('--max_steps', type=int, default=2048 * 10)
     argparser.add_argument('--debug_freq', type=int, default=1000)
@@ -120,9 +120,9 @@ if __name__ == '__main__':
             'CnnPolicy',
             env=vec_env,
             n_steps=ep_length // 8,
-            batch_size=512,
+            batch_size=128,
             n_epochs=3,
-            gamma=0.999,
+            gamma=0.998,
             verbose=1,
             ent_coef=args.ent_coef,
             tensorboard_log=os.path.join(log_dir, "tb"),

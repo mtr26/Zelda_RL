@@ -19,9 +19,10 @@ PATH = 'Rom/bin/zelda.gbc'
 # TODO : Implement a negatif reward system when the model return in an already known area
 
 class ZeldaEnv(gym.Env):
-    def __init__(self, pos, show = False, save = True, speed = 25, max_step = 2048*8,
-                 curriculum_states = None, curriculum_weights = None):
+    def __init__(self, pos, show = False, save = True, speed = 0, max_step = 2048*8,
+                 curriculum_states = None, curriculum_weights = None, act_freq = 24):
         super().__init__()
+        self.act_freq = act_freq
         self.init_state = 'init.state'
         # Curriculum: list of .state paths to sample from at reset.
         # curriculum_weights controls sampling probability (must sum to 1).
@@ -55,9 +56,17 @@ class ZeldaEnv(gym.Env):
 
         self.got_shield = False
         self.got_sword = False
-        self.visited_location = []
-        self.visited_worlds = []
+        self.visited_location = set()
+        self.visited_worlds = set()
         self.kill_count = 0
+        self.lifetime_visited = set()  # persists across episodes; only new tiles earn explore reward
+        self._episode_start_kills = 0
+        self._start_state_used = 'init.state'
+        self.last_episode_summary = {}
+        # Per-episode accumulators — must be initialized here so clear() can read them on ep0
+        self.reward_sum = 0.0
+        self.explo = 0.0
+        self.heal_r = 0.0
 
 
         self.metadata = {"render.modes": []}
@@ -118,7 +127,8 @@ class ZeldaEnv(gym.Env):
         self.show = show
         self.screen = self.pyboy.screen
         self.old_info = dict(self._get_info())
-        self.pyboy.set_emulation_speed(speed)
+        # Match Pokemon Red: run at full speed when headless, throttle to 6x when viewing
+        self.pyboy.set_emulation_speed(6 if show else 0)
         self.reset_number = 0
         self.reset()
         if save:
@@ -134,14 +144,19 @@ class ZeldaEnv(gym.Env):
             max_elements=self.num_elements, ef_construction=100, M=16)
     """
     def initialize(self, pos):
+        if not self.save:
+            return
         self.full_frame_writer = media.VideoWriter(f'vid/full_{pos}.mp4', (144, 160), fps=60)
         self.full_frame_writer.__enter__()
 
     def _choose_start_state(self):
         """Return a state file path, sampling from curriculum if configured."""
         if self.curriculum_states and len(self.curriculum_states) > 0:
-            return np.random.choice(self.curriculum_states, p=self.curriculum_weights)
-        return self.init_state
+            chosen = np.random.choice(self.curriculum_states, p=self.curriculum_weights)
+        else:
+            chosen = self.init_state
+        self._start_state_used = chosen
+        return chosen
 
     def reset(self, seed = None, options = None):
         # TODO : implement the reset method
@@ -194,7 +209,7 @@ class ZeldaEnv(gym.Env):
         self.last_info = info
         self._update_coverage(info)
         self._update_stuck(info)
-        rewards = self._get_rewards(info)
+        rewards = self._get_rewards(info) * 0.1
         terminated = info.get("health", 1) <= 0
         truncated = self.step_count >= self.max_step
         if not truncated:
@@ -216,6 +231,27 @@ class ZeldaEnv(gym.Env):
         self.old_info = dict(base_info)
 
     def clear(self):
+        # Snapshot completed-episode stats BEFORE resetting (readable via get_episode_summary)
+        kills_this_ep = max(0, self.kill_count - self._episode_start_kills)
+        self.last_episode_summary = {
+            'reward_sum': float(self.reward_sum),
+            'reward_explore': float(self.explo),
+            'reward_event': float(self.event_r),
+            'reward_kill': float(self.kill_r),
+            'reward_fight': float(self.heal_r),
+            'reward_stuck': float(self.stuck_r),
+            'reward_coverage': float(self.coverage_r),
+            'has_shield': bool(self.got_shield),
+            'has_sword': bool(self.got_sword),
+            'kills_this_episode': int(kills_this_ep),
+            'visited_locations': int(len(self.visited_location)),
+            'lifetime_visited': int(len(self.lifetime_visited)),
+            'stuck_steps_final': int(self.stuck_steps),
+            'episode_length': int(self.step_count),
+            'world_at_end': int(self._get_current_world),
+            'start_state': str(self._start_state_used),
+        }
+
         self.got_sword = False
         self.got_shield = False
         self.explo = 0
@@ -236,9 +272,10 @@ class ZeldaEnv(gym.Env):
         self.stuck_r = 0.0
         self.last_coverage_new = False
         self.stuck_steps = 0
-        self.kill_count = int(self._get_nbr_killed_monster)
-        self.visited_location = [(self._get_current_world, self._get_player_x // 16, self._get_player_y // 16)]
-        self.visited_worlds = [self._get_current_world]
+        self._episode_start_kills = int(self._get_nbr_killed_monster)
+        self.kill_count = self._episode_start_kills
+        self.visited_location = {(self._get_current_world, self._get_player_x // 16, self._get_player_y // 16)}
+        self.visited_worlds = {self._get_current_world}
         self.locations = self._get_maps_statuts
         self.life = self._get_health_level
         self.coverage_by_world = {}
@@ -255,13 +292,18 @@ class ZeldaEnv(gym.Env):
 
     def exploration_reward(self, change, info):
         reward = 0
-        if change['player_location'] and info['player_location'] not in self.visited_location:
-            reward += reward_table['explore']
-            self.visited_location.append(info['player_location'])
+        loc = info['player_location']
+        if change['player_location'] and loc not in self.visited_location:
+            self.visited_location.add(loc)
+            if loc not in self.lifetime_visited:
+                # Truly novel tile — full explore reward
+                reward += reward_table['explore']
+                self.lifetime_visited.add(loc)
+            # else: revisited from a prior episode — no reward (prevents cross-episode farming)
 
         if change['current_world'] and info['current_world'] not in self.visited_worlds:
             reward += reward_table['explore_house']
-            self.visited_worlds.append(info['current_world'])
+            self.visited_worlds.add(info['current_world'])
         self.explo += reward
         return reward
 
@@ -341,27 +383,29 @@ class ZeldaEnv(gym.Env):
     
     def _action_on_emulator(self, action):
         event = self.valid_actions[action]
+        headless = not self.save and not self.show
         if event is None:
-            for _ in range(9):
+            # No-op action: skip render on intermediate steps in headless mode
+            for i in range(self.act_freq):
+                is_last = (i == self.act_freq - 1)
                 if self.save:
                     self.add_video_frame()
-                self.pyboy.tick()
+                self.pyboy.tick(render=not headless or is_last)
             return
         self.pyboy.send_input(event)
-        # disable rendering when we don't need it
-        for i in range(9):
+        for i in range(self.act_freq):
+            is_last = (i == self.act_freq - 1)
             if i == 8:
                 if action < 4:
-                    # release arrow
                     self.pyboy.send_input(self.release_arrow[action])
                 if action > 3 and action < 6:
-                    # release button 
                     self.pyboy.send_input(self.release_button[action - 4])
                 if event == WindowEvent.PRESS_BUTTON_START:
                     self.pyboy.send_input(WindowEvent.RELEASE_BUTTON_START)
             if self.save:
                 self.add_video_frame()
-            self.pyboy.tick()
+            # Only render on the last frame; skip pixel buffer on intermediates
+            self.pyboy.tick(render=not headless or is_last)
         #self.pyboy.send_input(self.release_actions[action])
 
     def _update_coverage_from_position(self, world, x, y):
@@ -415,6 +459,12 @@ class ZeldaEnv(gym.Env):
             lines.append("".join("#" if val > 0 else "." for val in row))
         return "\n".join(lines)
 
+    def get_episode_summary(self):
+        """Return the summary of the most recently completed episode.
+        Safe to call right after reset() — snapshot is taken in clear() before any reset.
+        """
+        return dict(self.last_episode_summary)
+
     def get_debug_stats(self):
         info = self.last_info if self.last_info is not None else self._get_info()
         map_statut = info["map_statut"]
@@ -422,6 +472,8 @@ class ZeldaEnv(gym.Env):
         total = int(len(map_statut))
         ratio = discovered / total if total else 0.0
         coverage_stats = self.get_coverage_stats(info["current_world"])
+        # Reward component percentages (for farming detection)
+        total_r = self.reward_sum if self.reward_sum != 0 else 1e-9
         return {
             "step": int(self.step_count),
             "timesteps": int(self.step_count),
@@ -437,6 +489,9 @@ class ZeldaEnv(gym.Env):
             "reward_kill": float(self.kill_r),
             "reward_coverage": float(self.coverage_r),
             "reward_stuck": float(self.stuck_r),
+            "explore_pct": float(self.explo / total_r),
+            "event_pct": float(self.event_r / total_r),
+            "kill_pct": float(self.kill_r / total_r),
             "last_reward": float(self.last_reward),
             "last_reward_components": dict(self.last_reward_components),
             "map_discovered": discovered,
@@ -446,10 +501,12 @@ class ZeldaEnv(gym.Env):
             "coverage_total": coverage_stats["coverage_total"],
             "coverage_ratio": float(coverage_stats["coverage_ratio"]),
             "visited_locations": int(len(self.visited_location)),
+            "lifetime_visited": int(len(self.lifetime_visited)),
             "visited_worlds": int(len(self.visited_worlds)),
             "stuck_steps": int(self.stuck_steps),
             "has_sword": bool(self.got_sword),
             "has_shield": bool(self.got_shield),
+            "start_state": str(self._start_state_used),
             "episode_seconds": float(time.time() - self.episode_start_time),
         }
     
