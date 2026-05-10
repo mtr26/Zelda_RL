@@ -1,5 +1,12 @@
 from Rom.Zelda_env import *
 from stable_baselines3.common.vec_env import VecFrameStack, VecMonitor, SubprocVecEnv, DummyVecEnv, VecTransposeImage
+import torch
+import os
+
+# Limit PyTorch to 1 thread to prevent it from starving the parallel environment processes
+torch.set_num_threads(1)
+os.environ["OMP_NUM_THREADS"] = "1"
+
 from stable_baselines3 import PPO
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback

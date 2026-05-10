@@ -5,7 +5,7 @@ from pyboy.utils import WindowEvent
 import pyboy
 import numpy as np
 from Rom.memory_adress import *
-from skimage.transform import resize
+from Rom.memory_adress import *
 import json
 from pathlib import Path
 import mediapy as media
@@ -187,10 +187,11 @@ class ZeldaEnv(gym.Env):
     
     
     def render(self, is_resize = True):
-        # TODO : implement the render method
+        # The raw PyBoy screen is shape (144, 160, 4) (RGBA)
         game_pixels_render = self.screen.ndarray
         if is_resize:
-            game_pixels_render = (255*resize(game_pixels_render, self.output_shape)).astype(np.uint8)
+            # Drop alpha channel and downscale by 4x using numpy slicing (O(1) fast vs skimage)
+            game_pixels_render = game_pixels_render[::4, ::4, :3].copy()
         return game_pixels_render
     
     def get_image(self):
