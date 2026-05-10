@@ -10,17 +10,60 @@ os.environ["OMP_NUM_THREADS"] = "1"
 from stable_baselines3 import PPO
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+import torch.nn as nn
 from Rom.SaveOnBestCallback import SaveOnBestTrainingRewardCallback
 from Rom.TrainingDebugCallback import TrainingDebugCallback
 from stable_baselines3.common import results_plotter
 from stable_baselines3.common.results_plotter import plot_results
 import os
 import matplotlib
+import gymnasium as gym
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+class ZeldaFeatureExtractor(BaseFeaturesExtractor):
+    def __init__(self, observation_space: gym.spaces.Dict, features_dim: int = 256):
+        super().__init__(observation_space, features_dim)
+        
+        # 1. Image Branch (Grayscale 4-stack -> 16 -> 32)
+        n_input_channels = observation_space.spaces["image"].shape[0]
+        self.cnn = nn.Sequential(
+            nn.Conv2d(n_input_channels, 16, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        
+        # Compute shape by doing one forward pass
+        with torch.no_grad():
+            n_flatten = self.cnn(
+                torch.as_tensor(observation_space.spaces["image"].sample()[None]).float()
+            ).shape[1]
+            
+        # 2. RAM Branch (96 dims -> 64)
+        ram_dim = observation_space.spaces["ram"].shape[0]
+        self.ram_mlp = nn.Sequential(
+            nn.Linear(ram_dim, 64),
+            nn.ReLU()
+        )
+        
+        # 3. Fusion Layer
+        self.fusion = nn.Sequential(
+            nn.Linear(n_flatten + 64, features_dim),
+            nn.ReLU()
+        )
 
+    def forward(self, observations) -> torch.Tensor:
+        # PPO MultiInputPolicy passes a dict of tensors
+        image_features = self.cnn(observations["image"])
+        ram_features = self.ram_mlp(observations["ram"])
+        
+        # Concatenate and fuse
+        combined = torch.cat((image_features, ram_features), dim=1)
+        return self.fusion(combined)
 
 def make_env(rank, seed=0, max_time=2048 * 8, curriculum_states=None, curriculum_weights=None):
     """
@@ -124,8 +167,9 @@ if __name__ == '__main__':
         model = PPO.load(model_to_load, env=vec_env)
     else:
         model = PPO(
-            'CnnPolicy',
+            'MultiInputPolicy',
             env=vec_env,
+            policy_kwargs=dict(features_extractor_class=ZeldaFeatureExtractor),
             n_steps=ep_length // 8,
             batch_size=128,
             n_epochs=3,
@@ -134,6 +178,13 @@ if __name__ == '__main__':
             ent_coef=args.ent_coef,
             tensorboard_log=os.path.join(log_dir, "tb"),
         )
+        
+    try:
+        print("[INFO] Attempting to compile PyTorch policy for CPU acceleration...")
+        model.policy = torch.compile(model.policy, mode="reduce-overhead")
+        print("[INFO] torch.compile() succeeded!")
+    except Exception as e:
+        print(f"[WARN] torch.compile() failed (likely PyTorch < 2.0): {e}")
 
     total_timesteps = ep_length * num_episodes
     model.learn(total_timesteps=total_timesteps, progress_bar=True, callback=callback)

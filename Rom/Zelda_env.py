@@ -104,7 +104,7 @@ class ZeldaEnv(gym.Env):
         ]
 
 
-        self.output_shape = (36, 40, 3)
+        self.output_shape = (36, 40, 1)
         self.mem_padding = 2
         self.memory_height = 8
         self.col_steps = 16
@@ -116,7 +116,10 @@ class ZeldaEnv(gym.Env):
 
         # Set these in ALL subclasses
         self.action_space = gym.spaces.Discrete(len(self.valid_actions))
-        self.observation_space = gym.spaces.Box(low=0, high=255, shape=self.output_shape, dtype=np.uint8)
+        self.observation_space = gym.spaces.Dict({
+            "image": gym.spaces.Box(low=0, high=255, shape=self.output_shape, dtype=np.uint8),
+            "ram": gym.spaces.Box(low=0.0, high=1.0, shape=(24,), dtype=np.float32)
+        })
 
         self.statut = False
         self.pyboy = pyboy.PyBoy(
@@ -183,21 +186,24 @@ class ZeldaEnv(gym.Env):
         self.episode_start_time = time.time()
         self.last_info = None
         self.reset_number += 1
-        return self.render(), self._get_info()
+        
+        info = self._get_info()
+        obs = {"image": self.render(), "ram": self._get_ram_state(info)}
+        return obs, info
     
     
     def render(self, is_resize = True):
-        # The raw PyBoy screen is shape (144, 160, 4) (RGBA)
-        game_pixels_render = self.screen.ndarray
+        # The raw PyBoy screen is shape (144, 160, 4) (RGBA), we just take RGB
+        game_pixels_render = self.screen.ndarray[..., :3]
         if is_resize:
-            # Drop alpha channel and downscale by 4x using numpy slicing (O(1) fast vs skimage)
-            game_pixels_render = game_pixels_render[::4, ::4, :3].copy()
+            # Downscale by 4x using numpy slicing (O(1) fast vs skimage)
+            small = game_pixels_render[::4, ::4]
+            # Convert to Grayscale using ITU-R 601 Luma
+            return np.dot(small, [0.299, 0.587, 0.114]).astype(np.uint8)[..., np.newaxis]
         return game_pixels_render
     
     def get_image(self):
-        img_np_array = self.render(is_resize=False)
-        image = np.delete(arr=img_np_array, obj=3, axis=2)
-        return image
+        return self.render(is_resize=False)
     
     def add_video_frame(self):
         self.full_frame_writer.add_image(self.get_image())
@@ -205,8 +211,8 @@ class ZeldaEnv(gym.Env):
     def step(self, action: Any):
         # TODO : implement the step method
         self._action_on_emulator(action)
-        obs = self.render()
         info = self._get_info()
+        obs = {"image": self.render(), "ram": self._get_ram_state(info)}
         self.last_info = info
         self._update_coverage(info)
         self._update_stuck(info)
@@ -594,8 +600,43 @@ class ZeldaEnv(gym.Env):
             if item_slot in item_list.keys():
                 item_list[item_slot] = True
         return item_list
-    
-    
+
+    def _get_ram_state(self, info):
+        px = info.get('player_x', 0) / 255.0
+        py = info.get('player_y', 0) / 255.0
+        world = info.get('current_world', 0) / 255.0
+        health = info.get('health', 0) / 24.0
+        kills = info.get('killed_monster', 0) / 255.0
+        
+        held_items = info.get('held_items', [])
+        h1 = 0.0
+        if len(held_items) > 0 and isinstance(held_items[0], str):
+            try: h1 = float(int(held_items[0], 16)) / 13.0
+            except: pass
+        h2 = 0.0
+        if len(held_items) > 1 and isinstance(held_items[1], str):
+            try: h2 = float(int(held_items[1], 16)) / 13.0
+            except: pass
+            
+        sword_lvl = info.get('sword_level', 0) / 2.0
+        shield_lvl = info.get('shield_level', 0) / 2.0
+        
+        mb = info.get('max_bombs', 1)
+        if mb == 0: mb = 1
+        ma = info.get('maw_arrows', 1) # Note: typo in info 'maw_arrows' matches _get_info output
+        if ma == 0: ma = 1
+        bombs = info.get('nbr_bombs', 0) / float(mb)
+        arrows = info.get('nbr_arrows', 0) / float(ma)
+        
+        item_list = info.get('item_list', {})
+        inv_flags = []
+        for i in range(1, 14):
+            key = f'{i:02X}'
+            inv_flags.append(1.0 if item_list.get(key, False) else 0.0)
+            
+        ram = [px, py, world, health, kills, h1, h2, sword_lvl, shield_lvl, bombs, arrows] + inv_flags
+        return np.array(ram, dtype=np.float32)
+
     def _get_info(self):
         # TODO : add the bolean gets
         '''Return the info after a step occurs'''
