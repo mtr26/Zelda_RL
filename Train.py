@@ -3,13 +3,14 @@ from stable_baselines3.common.vec_env import VecFrameStack, VecMonitor, SubprocV
 import torch
 import os
 
-# Limit PyTorch to 1 thread to prevent it from starving the parallel environment processes
-torch.set_num_threads(1)
-os.environ["OMP_NUM_THREADS"] = "1"
+# NOTE: Thread count is managed dynamically by ThreadSwitchCallback:
+# - 1 thread during rollout collection (so env subprocesses get CPU)
+# - N threads during gradient update (all 40 cores available since envs are idle)
+os.environ["OMP_NUM_THREADS"] = "1"  # baseline, will be raised during training
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.utils import set_random_seed
-from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
+from stable_baselines3.common.callbacks import BaseCallback, CallbackList, CheckpointCallback
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 import torch.nn as nn
 from Rom.SaveOnBestCallback import SaveOnBestTrainingRewardCallback
@@ -22,6 +23,26 @@ import gymnasium as gym
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+
+class ThreadSwitchCallback(BaseCallback):
+    """Dynamically switches PyTorch thread count:
+    - 1 thread during rollout: env subprocesses need CPU cores.
+    - n_train_threads during training: envs are idle, use all cores for backprop.
+    """
+    def __init__(self, n_envs: int, verbose: int = 0):
+        super().__init__(verbose)
+        # Leave a few cores headroom for OS and env bookkeeping
+        self.n_train_threads = max(1, n_envs)
+
+    def _on_rollout_start(self) -> None:
+        torch.set_num_threads(1)
+
+    def _on_rollout_end(self) -> None:
+        torch.set_num_threads(self.n_train_threads)
+
+    def _on_step(self) -> bool:
+        return True
 
 class ZeldaFeatureExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space: gym.spaces.Dict, features_dim: int = 256):
@@ -155,7 +176,8 @@ if __name__ == '__main__':
         save_path=os.path.join(log_dir, "checkpoints"),
         name_prefix="ppo_zelda",
     )
-    callback = CallbackList([save_callback, debug_callback, checkpoint_callback])
+    thread_callback = ThreadSwitchCallback(n_envs=num_cpu)
+    callback = CallbackList([save_callback, debug_callback, checkpoint_callback, thread_callback])
 
     
     if pre_trained:
