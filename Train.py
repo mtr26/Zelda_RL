@@ -170,9 +170,12 @@ if __name__ == '__main__':
             'MultiInputPolicy',
             env=vec_env,
             policy_kwargs=dict(features_extractor_class=ZeldaFeatureExtractor),
-            n_steps=ep_length // 8,
-            batch_size=2048,  # 57344 / 2048 * 3 epochs = ~84 gradient steps (was 1344 @ batch=128)
-            n_epochs=3,
+            # n_steps=512 → rollout buffer = 512 * n_envs (e.g. 512*40=20480 samples)
+            # Gradient update pause: ~20480/2048 * 4 = 40 steps per cycle (~2-3s vs 30s)
+            # Tradeoff: higher gradient variance, offset by more frequent updates
+            n_steps=1024,
+            batch_size=2048,
+            n_epochs=4,
             gamma=0.998,
             verbose=1,
             ent_coef=args.ent_coef,
