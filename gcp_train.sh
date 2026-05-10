@@ -26,7 +26,7 @@ echo "[INFO] Target: 16384 * 3000 = ~49.1M timesteps"
 echo "[INFO] Curriculum: 100% init.state (Phase 1 — from scratch)"
 
 .venv/bin/python Train.py \
-    --num_cpu 28 \
+    --num_cpu 48 \
     --log_dir "${RUN_NAME}" \
     --max_steps 16384 \
     --num_episodes 3000 \
