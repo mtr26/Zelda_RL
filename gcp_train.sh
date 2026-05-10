@@ -10,7 +10,7 @@
 set -e
 
 RUN_NAME="run_sword_v1"
-CHECKPOINT="run_20m_long/best_model"
+CHECKPOINT="run_20m_long/best_model.zip"
 
 # Check checkpoint exists
 if [ ! -f "${CHECKPOINT}.zip" ] && [ ! -d "${CHECKPOINT}" ]; then
