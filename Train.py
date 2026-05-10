@@ -171,7 +171,7 @@ if __name__ == '__main__':
             env=vec_env,
             policy_kwargs=dict(features_extractor_class=ZeldaFeatureExtractor),
             n_steps=ep_length // 8,
-            batch_size=128,
+            batch_size=2048,  # 57344 / 2048 * 3 epochs = ~84 gradient steps (was 1344 @ batch=128)
             n_epochs=3,
             gamma=0.998,
             verbose=1,

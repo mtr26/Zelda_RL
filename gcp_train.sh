@@ -9,21 +9,21 @@
 
 set -e
 
-RUN_NAME="run_sword_v1"
-CHECKPOINT="run_20m_long/best_model.zip"
+RUN_NAME="run_hybrid_v1"
+CHECKPOINT=""
 
 # Check checkpoint exists
-if [ ! -f "${CHECKPOINT}.zip" ] && [ ! -d "${CHECKPOINT}" ]; then
-    echo "[WARN] Checkpoint '${CHECKPOINT}' not found — starting from scratch."
-    CHECKPOINT_FLAG=""
-else
+if [ -n "${CHECKPOINT}" ] && ([ -f "${CHECKPOINT}" ] || [ -d "${CHECKPOINT}" ]); then
     echo "[INFO] Fine-tuning from: ${CHECKPOINT}"
     CHECKPOINT_FLAG="--checkpoint ${CHECKPOINT}"
+else
+    echo "[INFO] No checkpoint — training from scratch."
+    CHECKPOINT_FLAG=""
 fi
 
 echo "[INFO] Starting run: ${RUN_NAME}"
 echo "[INFO] Target: 16384 * 3000 = ~49.1M timesteps"
-echo "[INFO] Curriculum: 70% init.state / 30% saved.state"
+echo "[INFO] Curriculum: 100% init.state (Phase 1 — from scratch)"
 
 .venv/bin/python Train.py \
     --num_cpu 28 \
@@ -35,5 +35,5 @@ echo "[INFO] Curriculum: 70% init.state / 30% saved.state"
     --coverage_freq 10000 \
     --text_map_freq 10000 \
     --checkpoint_freq 100000 \
-    --curriculum init.state:0.7 saved.state:0.3 \
+    --curriculum init.state:1.0 \
     ${CHECKPOINT_FLAG}
