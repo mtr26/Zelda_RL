@@ -237,7 +237,7 @@ class ZeldaEnv(gym.Env):
         self.last_coverage_new = False
         self.stuck_steps = 0
         self.kill_count = int(self._get_nbr_killed_monster)
-        self.visited_location = [(self._get_player_x, self._get_player_y)]
+        self.visited_location = [(self._get_current_world, self._get_player_x // 16, self._get_player_y // 16)]
         self.visited_worlds = [self._get_current_world]
         self.locations = self._get_maps_statuts
         self.life = self._get_health_level
@@ -545,7 +545,7 @@ class ZeldaEnv(gym.Env):
             current_world=self._get_current_world,
             player_x=self._get_player_x,
             player_y=self._get_player_y,
-            player_location=(self._get_player_x, self._get_player_y),
+            player_location=(self._get_current_world, self._get_player_x // 16, self._get_player_y // 16),
             map_statut=self._get_maps_statuts,
             held_items=self._get_held_items,
             inventory=self._get_player_inventory,

@@ -19,6 +19,7 @@ def make_env(rank, seed=0):
     """
     def _init():
         env = ZeldaEnv(rank, save=False,show=True, speed=8)
+        env.init_state = "saved.state"
         env.reset(seed=(seed + rank))
         return env
     set_random_seed(seed)
