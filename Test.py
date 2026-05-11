@@ -7,6 +7,7 @@ from stable_baselines3.common import results_plotter
 from stable_baselines3.common.results_plotter import plot_results
 import os
 import matplotlib.pyplot as plt
+from Train import ZeldaFeatureExtractor
 
 
 def make_env(rank, seed=0):
@@ -19,7 +20,6 @@ def make_env(rank, seed=0):
     """
     def _init():
         env = ZeldaEnv(rank, save=False,show=True, speed=8)
-        env.init_state = "saved.state"
         env.reset(seed=(seed + rank))
         return env
     set_random_seed(seed)
@@ -42,7 +42,11 @@ if __name__ == '__main__':
     vec_env = VecFrameStack(vec_env, n_stack=4)
     vec_env = VecTransposeImage(vec_env)
 
-    model = PPO.load(model_path, env=vec_env)
+    # Workaround for cloudpickle failing to load policy_kwargs from a torch.compiled model
+    custom_objects = {
+        "policy_kwargs": dict(features_extractor_class=ZeldaFeatureExtractor)
+    }
+    model = PPO.load(model_path, env=vec_env, custom_objects=custom_objects)
     obs = vec_env.reset()
 
     for _ in range(timesteps):

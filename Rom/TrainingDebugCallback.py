@@ -60,7 +60,8 @@ class TrainingDebugCallback(BaseCallback):
     _EPISODE_CSV_FIELDS = [
         "episode", "timestep", "start_state", "episode_length",
         "reward_sum", "reward_explore", "reward_event", "reward_kill",
-        "reward_fight", "reward_stuck", "reward_coverage",
+        "reward_fight", "reward_stuck", "reward_coverage", 
+        "reward_step", "reward_death",
         "has_shield", "has_sword", "kills_this_episode",
         "visited_locations", "lifetime_visited",
         "stuck_steps_final", "world_at_end",
@@ -165,6 +166,8 @@ class TrainingDebugCallback(BaseCallback):
         self.logger.record("reward/kill_sum", stats.get("reward_kill", 0.0))
         self.logger.record("reward/coverage_sum", stats.get("reward_coverage", 0.0))
         self.logger.record("reward/stuck_sum", stats.get("reward_stuck", 0.0))
+        self.logger.record("reward/step_sum", stats.get("reward_step", 0.0))
+        self.logger.record("reward/death_sum", stats.get("reward_death", 0.0))
         self.logger.record("reward/last", stats.get("last_reward", 0.0))
         # Reward component percentages (farming detector)
         self.logger.record("reward/explore_pct", stats.get("explore_pct", 0.0))

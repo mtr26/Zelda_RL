@@ -6,8 +6,9 @@
     "sword" : 50,
     "kill" : 1.0,
     "explore_house" : 0.05,
-    "loss" : -1,
+    "loss" : -20.0,
     "hit" : -2,
     "more_life" : 2,
-    "stuck" : -0.01
+    "stuck" : -0.01,
+    "step" : -0.001
 }
