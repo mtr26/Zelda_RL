@@ -10,16 +10,13 @@ import matplotlib.pyplot as plt
 from Train import ZeldaFeatureExtractor
 
 
-def make_env(rank, seed=0):
+def make_env(rank, seed=0, record=False):
     """
     Utility function for multiprocessed env.
-    :param env_id: (str) the environment ID
-    :param num_env: (int) the number of environments you wish to have in subprocesses
-    :param seed: (int) the initial seed for RNG
-    :param rank: (int) index of the subprocess
     """
     def _init():
-        env = ZeldaEnv(rank, save=False,show=True, speed=8)
+        # If recording, hide the window and enable saving
+        env = ZeldaEnv(rank, save=record, show=not record, speed=8 if not record else 0)
         env.reset(seed=(seed + rank))
         return env
     set_random_seed(seed)
@@ -31,14 +28,16 @@ import argparse
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--timesteps', type=int, default=int(1e6))
-    argparser.add_argument('--model_path')
+    argparser.add_argument('--model_path', required=True, help="Path to the model zip file")
+    argparser.add_argument('--mp4', action='store_true', help="Generate an MP4 video instead of opening a window")
 
     args = argparser.parse_args()
     timesteps = args.timesteps
     model_path = args.model_path
+    record = args.mp4
 
 
-    vec_env = DummyVecEnv([make_env(0)])
+    vec_env = DummyVecEnv([make_env(0, record=record)])
     vec_env = VecFrameStack(vec_env, n_stack=4)
     vec_env = VecTransposeImage(vec_env)
 
@@ -49,8 +48,21 @@ if __name__ == '__main__':
     model = PPO.load(model_path, env=vec_env, custom_objects=custom_objects)
     obs = vec_env.reset()
 
-    for _ in range(timesteps):
-        action, _state = model.predict(obs)
+    print(f"[INFO] Starting Test run. Recording: {record}")
+    
+    # If recording, only run until the first episode ends to save a clean video
+    steps = 0
+    while steps < timesteps:
+        action, _state = model.predict(obs, deterministic=True)
         obs, reward, done, info = vec_env.step(action)
+        steps += 1
+        
+        if record and done[0]:
+            print(f"[INFO] Episode finished after {steps} steps. Saving video...")
+            break
+
+    vec_env.close()
+    if record:
+        print("[SUCCESS] MP4 Video has been saved to the vid/ directory!")
 
 

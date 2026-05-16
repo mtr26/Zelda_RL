@@ -1,5 +1,6 @@
 from typing import Any
 import time
+import os
 import gymnasium as gym
 from pyboy.utils import WindowEvent
 import pyboy
@@ -134,9 +135,9 @@ class ZeldaEnv(gym.Env):
         self.pyboy.set_emulation_speed(6 if show else 0)
         self.reset_number = 0
         self.reset()
+        self.save = save
         if save:
             self.initialize(pos=pos)
-        self.save = save
 
     """
     def init_knn(self):
@@ -149,6 +150,7 @@ class ZeldaEnv(gym.Env):
     def initialize(self, pos):
         if not self.save:
             return
+        os.makedirs('vid', exist_ok=True)
         self.full_frame_writer = media.VideoWriter(f'vid/full_{pos}.mp4', (144, 160), fps=60)
         self.full_frame_writer.__enter__()
 
@@ -248,6 +250,8 @@ class ZeldaEnv(gym.Env):
             'reward_fight': float(self.heal_r),
             'reward_stuck': float(self.stuck_r),
             'reward_coverage': float(self.coverage_r),
+            'reward_step': float(self.step_r),
+            'reward_death': float(self.death_r),
             'has_shield': bool(self.got_shield),
             'has_sword': bool(self.got_sword),
             'kills_this_episode': int(kills_this_ep),
@@ -273,10 +277,14 @@ class ZeldaEnv(gym.Env):
             "coverage": 0.0,
             "kill": 0.0,
             "stuck": 0.0,
+            "step": 0.0,
+            "death": 0.0,
         }
         self.coverage_r = 0.0
         self.kill_r = 0.0
         self.stuck_r = 0.0
+        self.step_r = 0.0
+        self.death_r = 0.0
         self.last_coverage_new = False
         self.stuck_steps = 0
         self._episode_start_kills = int(self._get_nbr_killed_monster)
@@ -368,7 +376,13 @@ class ZeldaEnv(gym.Env):
         reward_stuck = 0.0
         if self.stuck_steps >= self.stuck_threshold:
             reward_stuck = reward_table.get("stuck", 0.0)
-        reward = reward_event + reward_explore + reward_fight + reward_kill + reward_coverage + reward_stuck
+            
+        reward_step = reward_table.get("step", 0.0)
+        reward_death = 0.0
+        if info.get("health", 1) <= 0:
+            reward_death = reward_table.get("loss", 0.0)
+            
+        reward = reward_event + reward_explore + reward_fight + reward_kill + reward_coverage + reward_stuck + reward_step + reward_death
         self.last_reward_components = {
             "explore": reward_explore,
             "fight": reward_fight,
@@ -376,10 +390,14 @@ class ZeldaEnv(gym.Env):
             "kill": reward_kill,
             "coverage": reward_coverage,
             "stuck": reward_stuck,
+            "step": reward_step,
+            "death": reward_death,
         }
         self.last_reward = reward
         self.coverage_r += reward_coverage
         self.stuck_r += reward_stuck
+        self.step_r += reward_step
+        self.death_r += reward_death
         self.reward_sum += reward
         self.print_reward()
         # NOTE: _reset_memory() was intentionally removed — it was zeroing
@@ -496,6 +514,8 @@ class ZeldaEnv(gym.Env):
             "reward_kill": float(self.kill_r),
             "reward_coverage": float(self.coverage_r),
             "reward_stuck": float(self.stuck_r),
+            "reward_step": float(self.step_r),
+            "reward_death": float(self.death_r),
             "explore_pct": float(self.explo / total_r),
             "event_pct": float(self.event_r / total_r),
             "kill_pct": float(self.kill_r / total_r),
