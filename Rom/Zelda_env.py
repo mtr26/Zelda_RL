@@ -44,10 +44,14 @@ class ZeldaEnv(gym.Env):
             "coverage": 0.0,
             "kill": 0.0,
             "stuck": 0.0,
+            "step": 0.0,
+            "death": 0.0,
         }
         self.coverage_r = 0.0
         self.kill_r = 0.0
         self.stuck_r = 0.0
+        self.step_r = 0.0
+        self.death_r = 0.0
         self.last_coverage_new = False
         self.stuck_threshold = 64
         self.stuck_steps = 0
