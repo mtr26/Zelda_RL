@@ -295,9 +295,11 @@ class ZeldaEnv(gym.Env):
         self.stuck_steps = 0
         self._episode_start_kills = int(self._get_nbr_killed_monster)
         self.kill_count = self._episode_start_kills
-        # Sync the delta counter to current lifetime_visited size so no phantom
-        # reward is earned on the first step of the new episode.
-        self.prev_lifetime_count = len(self.lifetime_visited)
+        # Reset exploration tracking for this episode.
+        # Per-episode reset (like Pokemon RL's KNN) ensures every episode
+        # starts on equal footing so SaveOnBestCallback works correctly.
+        self.lifetime_visited.clear()
+        self.prev_lifetime_count = 0
         self.visited_location = set()
         self.visited_location.add((
             self._get_current_world,
