@@ -1,3 +1,4 @@
+from Rom.memory_adress import PLAYER_X
 from typing import Any
 import time
 import os
@@ -65,6 +66,7 @@ class ZeldaEnv(gym.Env):
         self.visited_worlds = set()
         self.kill_count = 0
         self.lifetime_visited = set()  # persists across episodes; only new tiles earn explore reward
+        self.prev_lifetime_count = 0   # snapshot of lifetime_visited size at last step (delta-based reward)
         self._episode_start_kills = 0
         self._start_state_used = 'init.state'
         self.last_episode_summary = {}
@@ -123,7 +125,7 @@ class ZeldaEnv(gym.Env):
         self.action_space = gym.spaces.Discrete(len(self.valid_actions))
         self.observation_space = gym.spaces.Dict({
             "image": gym.spaces.Box(low=0, high=255, shape=self.output_shape, dtype=np.uint8),
-            "ram": gym.spaces.Box(low=0.0, high=1.0, shape=(24,), dtype=np.float32)
+            "ram": gym.spaces.Box(low=0.0, high=1.0, shape=(25,), dtype=np.float32)
         })
 
         self.statut = False
@@ -233,7 +235,7 @@ class ZeldaEnv(gym.Env):
     def close(self):
         self.pyboy.stop()
         if self.save:
-            self.full_frame_writer.close()
+            self.full_frame_writer.__exit__(None, None, None)
 
 
     def check_change(self):
@@ -293,7 +295,16 @@ class ZeldaEnv(gym.Env):
         self.stuck_steps = 0
         self._episode_start_kills = int(self._get_nbr_killed_monster)
         self.kill_count = self._episode_start_kills
-        self.visited_location = {(self._get_current_world, self._get_player_x // 16, self._get_player_y // 16)}
+        # Sync the delta counter to current lifetime_visited size so no phantom
+        # reward is earned on the first step of the new episode.
+        self.prev_lifetime_count = len(self.lifetime_visited)
+        self.visited_location = set()
+        self.visited_location.add((
+            self._get_current_world,
+            self._get_overworld_room,
+            self._get_player_x // 10,
+            self._get_player_y // 10,
+        ))
         self.visited_worlds = {self._get_current_world}
         self.locations = self._get_maps_statuts
         self.life = self._get_health_level
@@ -310,19 +321,28 @@ class ZeldaEnv(gym.Env):
         self.pyboy.tick(count=25, render=False)
 
     def exploration_reward(self, change, info):
-        reward = 0
+        """Delta-based exploration reward (Pokemon-style).
+        
+        We add every visited tile to lifetime_visited (which never resets).
+        The reward each step = (new lifetime_visited size - prev size) * per_tile_value.
+        This means:
+          - Pacing between two known rooms → delta = 0 → reward = 0
+          - Walking into a brand new tile → delta = 1 → reward = per_tile_value
+          - No farming possible: a tile only contributes to the delta once, ever.
+        """
         loc = info['player_location']
-        if change['player_location'] and loc not in self.visited_location:
-            self.visited_location.add(loc)
-            if loc not in self.lifetime_visited:
-                # Truly novel tile — full explore reward
-                reward += reward_table['explore']
-                self.lifetime_visited.add(loc)
-            # else: revisited from a prior episode — no reward (prevents cross-episode farming)
+        # Always track within-episode visits (used by stuck detection)
+        self.visited_location.add(loc)
+        # Add to lifetime set; it will only grow when loc is truly new
+        self.lifetime_visited.add(loc)
 
-        if change['current_world'] and info['current_world'] not in self.visited_worlds:
-            reward += reward_table['explore_house']
-            self.visited_worlds.add(info['current_world'])
+        # Compute delta since last step
+        new_count = len(self.lifetime_visited)
+        delta = new_count - self.prev_lifetime_count
+        self.prev_lifetime_count = new_count
+
+        per_tile = reward_table.get('explore_per_tile', 0.005)
+        reward = delta * per_tile
         self.explo += reward
         return reward
 
@@ -552,13 +572,23 @@ class ZeldaEnv(gym.Env):
     
     @property
     def _get_player_x(self):
-        '''Get the player's x position'''
-        return self.pyboy.memory[GREAT_PLAYER_X]
+        '''Get the player's in-room X pixel position (0x00–0xF0)'''
+        return self.pyboy.memory[PLAYER_X_INROOM]
 
     @property
     def _get_player_y(self):
-        '''Get the player's y position'''
-        return self.pyboy.memory[GREAT_PLAYER_Y]
+        '''Get the player's in-room Y pixel position (0x3D–0xDD)'''
+        return self.pyboy.memory[PLAYER_Y_INROOM]
+    
+    @property
+    def _get_overworld_room(self):
+        '''Get the current map/room ID (0xFFF6). Changes when Link transitions between screens.'''
+        return self.pyboy.memory[MAP_ROOM_ID]
+
+    @property
+    def _get_dungeon(self):
+        '''Get the current dungeon/sub-map number (0xD402). 0xFF = Color Dungeon.'''
+        return self.pyboy.memory[CURRENT_DUNGEON]
     
     @property
     def _get_maps_statuts(self):
@@ -626,9 +656,14 @@ class ZeldaEnv(gym.Env):
         return item_list
 
     def _get_ram_state(self, info):
-        px = info.get('player_x', 0) / 255.0
-        py = info.get('player_y', 0) / 255.0
-        world = info.get('current_world', 0) / 255.0
+        # in-room pixel X (0-160)
+        px = info.get('player_x', 0) / 160.0
+        # in-room pixel Y (0-144)
+        py = info.get('player_y', 0) / 144.0
+        # area type: 0=overworld, 1=dungeon/indoor, 2=side-scroll → normalize to [0,1]
+        world = info.get('current_world', 0) / 2.0
+        # map room ID (0-255)
+        room = info.get('overworld_room', 0) / 255.0
         health = info.get('health', 0) / 24.0
         kills = info.get('killed_monster', 0) / 255.0
         
@@ -658,7 +693,7 @@ class ZeldaEnv(gym.Env):
             key = f'{i:02X}'
             inv_flags.append(1.0 if item_list.get(key, False) else 0.0)
             
-        ram = [px, py, world, health, kills, h1, h2, sword_lvl, shield_lvl, bombs, arrows] + inv_flags
+        ram = [px, py, world, room, health, kills, h1, h2, sword_lvl, shield_lvl, bombs, arrows] + inv_flags
         return np.array(ram, dtype=np.float32)
 
     def _get_info(self):
@@ -668,7 +703,17 @@ class ZeldaEnv(gym.Env):
             current_world=self._get_current_world,
             player_x=self._get_player_x,
             player_y=self._get_player_y,
-            player_location=(self._get_current_world, self._get_player_x // 16, self._get_player_y // 16),
+            overworld_room=self._get_overworld_room,
+            dungeon=self._get_dungeon,
+            # Canonical exploration key: (area_type, overworld_room, coarse_x, coarse_y)
+            # area_type 0=overworld, 1=dungeon/indoor, 2=side-scroll
+            # coarse position divides 160-px room into 10-px tiles (16 buckets per axis)
+            player_location=(
+                self._get_current_world,
+                self._get_overworld_room,
+                self._get_player_x // 10,
+                self._get_player_y // 10,
+            ),
             map_statut=self._get_maps_statuts,
             held_items=self._get_held_items,
             inventory=self._get_player_inventory,

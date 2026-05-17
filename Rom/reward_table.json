@@ -1,6 +1,7 @@
 {
-    "_comment" : "sword is primary goal; explo : 0.03; easy reward : 2; mid : 4; complex : 10; sword : 50",
+    "_comment" : "sword is primary goal. explore_per_tile: delta-based, 0.005/tile matches PokemonRL. step: -0.001/frame drains idle agents. loss: -20 prevents suicide farming.",
     "shield" : 10,
+    "explore_per_tile" : 0.005,
     "explore" : 0.03,
     "coverage" : 0.01,
     "sword" : 50,

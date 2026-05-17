@@ -53,6 +53,8 @@ if __name__ == '__main__':
     # If recording, only run until the first episode ends to save a clean video
     steps = 0
     while steps < timesteps:
+        if not record:
+            print_hud(vec_env.envs[0])
         action, _state = model.predict(obs, deterministic=True)
         obs, reward, done, info = vec_env.step(action)
         steps += 1
@@ -64,5 +66,3 @@ if __name__ == '__main__':
     vec_env.close()
     if record:
         print("[SUCCESS] MP4 Video has been saved to the vid/ directory!")
-
-

@@ -1,9 +1,33 @@
-CURRENT_WORLD = 0xD401 # if in houses : 0 else : 1 or more
-PLAYER_X = 0xD404 # must check
-PLAYER_Y = 0xD405 # must check
-GREAT_PLAYER_X = 0xFF98 
-GREAT_PLAYER_Y = 0xFF99 
-LOCATION = [0xD404, 0xD405]
+# ─── Player Position ──────────────────────────────────────────────────────────
+# 0xEB  = Overworld room ID:  value = room_x + 0x10 * room_y (16x8 grid)
+#         This is the canonical address to track WHICH overworld screen Link is on.
+OVERWORLD_ROOM = 0xEB         # Current room on the overworld grid (0x00 – 0x7F)
+
+# 0xFF98 / 0xFF99 = Link's pixel position within the current room/screen
+#   These are the ONLY addresses that update in real-time as Link moves.
+#   X: 0–160 pixels (full screen width)
+#   Y: 0–144 pixels (full screen height)
+PLAYER_X_INROOM = 0xFF98      # Link's in-room X pixel position
+PLAYER_Y_INROOM = 0xFF99      # Link's in-room Y pixel position
+# Backward-compat aliases (old code references these names)
+PLAYER_X = PLAYER_X_INROOM
+PLAYER_Y = PLAYER_Y_INROOM
+GREAT_PLAYER_X = PLAYER_X_INROOM  # Legacy alias
+GREAT_PLAYER_Y = PLAYER_Y_INROOM  # Legacy alias
+
+# 0xFFF6 = Current map/room ID (changes when Link walks between screens)
+MAP_ROOM_ID = 0xFFF6
+
+# ─── Map / World Info ─────────────────────────────────────────────────────────
+# 0xD401 = Map type:  0=Overworld, 1=Dungeon/indoor, 2=Side-scroll
+CURRENT_WORLD = 0xD401        # Area type (overworld vs indoor vs side-scroll)
+# 0xD402 = Sub-map (dungeon number, 0x00-0x1F; 0xFF = Color Dungeon)
+CURRENT_DUNGEON = 0xD402
+# 0xD403 = Room number within the current dungeon/area
+ROOM_NUMBER = 0xD403
+
+
+
 CURRENT_LOADED_MAP = [0xD700, 0xD79B]
 WORLD_STATUT = [0xD800, 0xD8FF] # * min - max In reality idk, It seems that when you discoverd a new location it's setting it to 128
 HELD_ITEM_1 = 0xDB00 # Refered to the item's index list
